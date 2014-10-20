@@ -1,0 +1,419 @@
+#!/usr/bin/env python3
+
+import os
+import sys
+import re
+import argparse
+import ipaddress
+import subprocess
+import string
+import random
+import crypt
+import traceback
+
+DEBUG = False
+
+CONFIG = {
+    'dir': '/tmp/xen/images',
+    'install-method': 'debootstrap',
+    'size': '8G',
+    'memory': '128M',
+    'swap': '128M',
+    'fs': 'ext4',
+    'dist': 'jessie',
+    'arch': 'amd64',
+    'mirror': 'http://ftp.debian.org/debian',
+    'image': 'full',
+    'cachedir': '/tmp/xen/cache',
+    'ip': 'auto',
+    'network': '192.168.0.0/24',
+    'gateway': '192.168.1.1',
+    'netmask': '255.255.255.0',
+    'nameserver': '192.168.1.1',
+    'bridge': 'xenbr0',
+    'kernel': '/boot/vmlinuz-`uname -r`',
+    'initrd': '/boot/initrd.img-`uname -r`',
+    'output': '/etc/xen',
+    'extension': '.cfg',
+    'ext4_options': 'noatime,nodiratime,errors=remount-ro',
+    'ext3_options': 'noatime,nodiratime,errors=remount-ro',
+    'ext2_options': 'noatime,nodiratime,errors=remount-ro',
+    'disk_device': 'xvda',
+    'genpass': '1',
+    'genpass_len': '8',
+    'hash_method': 'sha512',
+    'vcpus': '1'}
+
+VM_CONFIG = {
+    'name': '',
+    'net': [],
+    'users': []}
+
+
+def debug(text):
+    if DEBUG:
+        print('DEBUG: %s' % (text,))
+
+
+def run(cmd):
+    debug(cmd)
+
+    try:
+        ret = subprocess.check_call(cmd, shell=True)
+    except Exception as e:
+        raise RuntimeError('Failed to execute command: %s' % (e,))
+    else:
+        if ret != 0:
+            raise RuntimeError('Command \'%s\' returns \'%i\'' % (cmd, ret))
+
+
+def parse_config(cfgfile='/etc/xenl-tools/xen-tools.conf'):
+    config = {}
+    with open(cfgfile, 'r') as f:
+        for line in f:
+            line = [x.strip() for x in line.split('#')[0].split('=')]
+            if len(line) > 1:
+                config[line[0]] = line[1]
+    return config
+
+
+def create_vm(args):
+    def set_units(value):
+        if re.match('^[0-9]+$', value):
+            value = '%sM' % (value)
+        elif not re.match('^[0-9]+[MG]$', value):
+            raise ValueError('Bad unit for value %s' % (value,))
+        return value
+
+    def get_size(value):
+        if value[len(value) - 1] == 'G':
+            value = int(value[:-1]) * 1024
+        elif value[len(value) - 1] == 'M':
+            value = int(value[:-1])
+
+        return value
+
+    VM_CONFIG['name'] = args['name']
+    VM_CONFIG['vcpus'] = args['vcpus']
+    VM_CONFIG['memory'] = get_size(set_units(args['memory']))
+
+    vmdir = os.path.join(args['dir'], args['name'])
+    try:
+        debug('Creating %s directory' % (vmdir,))
+        os.makedirs(vmdir)
+    except IOError:
+        raise Exception('VM name already exists')
+
+    if 'dir' in CONFIG and CONFIG['dir'] != '':
+        backend = 'file'
+
+        create_disk_image(
+            dirname=vmdir,
+            size=get_size(set_units(args['size'])),
+            fs=args['fs'])
+        create_swap_image(
+            dirname=vmdir,
+            size=get_size(set_units(args['swap'])))
+    else:
+        raise ValueError('Unspecified xen image backend')
+
+    install_os(
+        method=args['install-method'],
+        dirname=vmdir,
+        vmname=args['name'],
+        dist=args['dist'],
+        arch=args['arch'],
+        fs=args['fs'],
+        ip=args['ip'],
+        backend=backend)
+    create_xen_config(vmconfig=VM_CONFIG)
+
+
+def create_disk_image(dirname, size, fs):
+    debug('Creating root disk image')
+
+    imgpath = os.path.join(dirname, 'disk.img')
+
+    if not os.path.exists(imgpath):
+        run('dd if=/dev/zero of=%s bs=1024k seek=%i count=0' % (imgpath, size))
+        run('mkfs -F -t %s %s' % (fs, imgpath))
+    else:
+        raise IOError('VM file %s already exists' % (imgpath,))
+
+    VM_CONFIG['disk'] = {
+        'type': 'file',
+        'path': imgpath,
+        'device': CONFIG['disk_device']}
+
+
+def create_swap_image(dirname, size):
+    debug('Creating swap disk image')
+
+    swappath = os.path.join(dirname, 'swap.img')
+
+    if not os.path.exists(swappath):
+        run('dd if=/dev/zero of=%s bs=1024k seek=%i count=0' % (swappath, size))
+        run('mkswap %s' % (swappath,))
+    else:
+        raise IOError('SWAP file %s already exists' % (swappath,))
+
+    VM_CONFIG['swap'] = {
+        'type': 'file',
+        'path': swappath,
+        'device': CONFIG['disk_device']}
+
+
+def install_os(method, dirname, vmname, dist, arch, fs, ip, backend='file'):
+    debug('Installing OS')
+
+    mountpoint = os.path.join(dirname, 'install_tmp')
+
+    try:
+        debug('Creating temporary mountpoint')
+        os.makedirs(mountpoint)
+    except IOError:
+        pass
+
+    if backend == 'file':
+        img = os.path.join(dirname, 'disk.img')
+        run('mount -o loop %s %s' % (img, mountpoint))
+
+    if method == 'debootstrap':
+        debug('Debootstraping debian basic image')
+        run('debootstrap --arch=%s %s %s %s' % (
+            arch, dist, mountpoint, CONFIG['mirror']))
+    set_fstab_file(dirname=mountpoint, fs=fs)
+    set_root_password(dirname=mountpoint)
+    set_network_config(dirname=mountpoint, ip=ip)
+
+    run('umount %s' % (mountpoint,))
+    debug('Deleting temporary mountpoint')
+    os.rmdir(mountpoint)
+
+
+def set_fstab_file(dirname, fs):
+    debug('Creating fstab file')
+
+    fstab = "proc      /proc    proc    defaults                        0 0\n"
+    fstab += "devpts   /dev/pts devpts  rw,noexec,nosuid,gid=5,mode=620 0 0\n"
+    fstab += "/dev/%s1 / %s %s 0 1\n" % (
+        CONFIG['disk_device'],
+        fs,
+        CONFIG['%s_options' % (fs,)])
+    fstab += "/dev/%s2 none swap sw 0 0\n" % (CONFIG['disk_device'])
+
+    with open(os.path.join(dirname, 'etc', 'fstab'), 'w') as f:
+        f.write(fstab)
+
+
+def set_root_password(dirname):
+    def generate_password(length):
+        chars = string.ascii_letters + string.digits
+        return ''.join(random.choice(chars) for _ in range(length))
+
+    debug('Generating a password for the new guest')
+
+    password = generate_password(int(CONFIG['genpass_len']))
+
+    if CONFIG['hash_method'] == 'sha512':
+        salt = crypt.mksalt(crypt.METHOD_SHA512)
+    elif CONFIG['hash_method'] == 'sha256':
+        salt = crypt.mksalt(crypt.METHOD_SHA256)
+    elif CONFIG['hash_method'] == 'md5':
+        salt = crypt.mksalt(crypt.METHOD_MD5)
+    else:
+        raise ValueError('Bad value for password hash_method')
+
+    hash_password = crypt.crypt(password, salt)
+
+    shadow_file = os.path.join(dirname, 'etc', 'shadow')
+    with open(shadow_file, 'r') as f:
+        shadow_lines = f.read().split('\n')
+
+    with open(shadow_file, 'w') as f:
+        for linenum in range(len(shadow_lines)):
+            if re.match('^root', shadow_lines[linenum]):
+                arr = shadow_lines[linenum].split(':')
+                arr[1] = hash_password
+                shadow_lines[linenum] = ':'.join(arr)
+        f.write('\n'.join(shadow_lines))
+
+    VM_CONFIG['users'].append({'name': 'root', 'password': password})
+    debug('New password generated: %s' % (password,))
+
+
+def set_network_config(dirname, ip):
+    debug('Creating the network configuration')
+
+    netconfig = {}
+
+    interfaces = "auto lo\n"
+    interfaces += "iface lo inet loopback\n\n"
+
+    if ip == '' or ip == 'auto':
+        ip = generate_ipv4(network=CONFIG['network'])
+
+    interfaces += "allow-hotplug eth0\n"
+    interfaces += "iface eth0 inet static\n"
+
+    interfaces += "    address %s\n" % (ip,)
+    netconfig['device'] = 'eth0'
+    netconfig['address'] = ip
+
+    for key in ['netmask', 'gateway', 'nameserver']:
+        if key in CONFIG and CONFIG[key] != '':
+            interfaces += "    %s %s\n" % (key, CONFIG['nameserver'])
+            netconfig[key] = CONFIG[key]
+
+    netconfig['mac'] = generate_mac()
+    netconfig['bridge'] = CONFIG['bridge']
+
+    with open(os.path.join(dirname, 'etc', 'network', 'interfaces'), 'w') as f:
+        f.write(interfaces)
+
+    VM_CONFIG['net'].append(netconfig)
+    debug('New IP assigned: %s' % (ip,))
+
+
+def generate_ipv4(network):
+    cache_file = os.path.join(CONFIG['cachedir'], '.vm_ip.cache')
+
+    def get_previous_ip():
+        ret = ''
+        if os.path.exists(cache_file):
+            with open(cache_file, 'r') as f:
+                ret = f.read().strip()
+        return ret
+
+    def set_previous_ip(ip):
+        with open(cache_file, 'w') as f:
+            f.write(ip)
+
+    previous_ip = get_previous_ip()
+    if previous_ip == '':
+        previous_ip = str(ipaddress.IPv4Network(network)[0])
+
+    new_ip = ipaddress.IPv4Address(previous_ip) + 1
+    if new_ip in ipaddress.IPv4Network(network):
+        set_previous_ip(str(new_ip))
+        return str(new_ip)
+    else:
+        raise ValueError('Unable to get new ip address')
+
+
+def generate_mac():
+    def maccouple():
+        return ''.join(random.choice(string.hexdigits) for _ in range(2))
+    return ':'.join(maccouple() for _ in range(6))
+
+
+def create_xen_config(vmconfig):
+    debug('Creating xen configuration file')
+
+    xenfile = ''
+
+    xenfile += "kernel  = '%s'\n" % (
+        subprocess.check_output(
+            'echo -n ' + CONFIG['kernel'],
+            shell=True,
+            universal_newlines=True))
+    xenfile += "ramdisk = '%s'\n" % (
+        subprocess.check_output(
+            'echo -n ' + CONFIG['initrd'],
+            shell=True,
+            universal_newlines=True))
+
+    xenfile += "name    = '%s'\n" % (vmconfig['name'],)
+    xenfile += "vcpus   = '%s'\n" % (vmconfig['vcpus'],)
+
+    xenfile += "memory  = '%s'\n" % (vmconfig['memory'],)
+
+    xenfile += "root    = '/dev/%s1 ro'\n" % (vmconfig['disk']['device'],)
+    xenfile += "disk    = [\n    '%s,,%s1',\n    '%s,,%s2'\n]\n" % (
+        vmconfig['disk']['path'],
+        vmconfig['disk']['device'],
+        vmconfig['swap']['path'],
+        vmconfig['swap']['device'])
+
+    xenfile += "vif     = [\n    'ip=%s,mac=%s,bridge=%s'\n]\n" % (
+        vmconfig['net'][0]['address'],
+        vmconfig['net'][0]['mac'],
+        vmconfig['net'][0]['bridge'])
+
+    xenfile += "on_poweroff = 'destroy'\n"
+    xenfile += "on_reboot   = 'restart'\n"
+    xenfile += "on_crash    = 'restart'\n"
+
+    filename = os.path.join(
+        CONFIG['output'],
+        vmconfig['name'] + CONFIG['extension'])
+    with open(filename, 'w') as f:
+        f.write(xenfile)
+
+    debug('XEN Config file %s created' % (filename,))
+
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description='Create xen image file')
+
+    parser.add_argument('vmname', help='name of the virtual machine')
+    parser.add_argument('-d', '--debug', action="store_true", help='debug mode')
+    parser.add_argument(
+        '-c', '--config',
+        help='xl config file (default is /etc/xenl-tools/xen-tools.conf)',
+        default='/etc/xenl-tools/xen-tools.conf')
+    parser.add_argument('--ip', help='IP address')
+    parser.add_argument('--netmask', help='netmask address')
+    parser.add_argument('--gateway', help='network gateway address')
+    parser.add_argument('--nameserver', help='namserver IP address')
+    parser.add_argument('--size', help='size of the primary HDD')
+    parser.add_argument(
+        '--fs',
+        help='filesystem type to use for root partition')
+    parser.add_argument('--memory', help='size of the RAM')
+    parser.add_argument('--swap', help='size of the SWAP')
+    parser.add_argument('--vcpus', help='number of cpu allocated to the VM')
+    parser.add_argument(
+        '--dist',
+        help='distribution name or version for debian')
+    parser.add_argument('--arch', help='architecture (i386 or amd64)')
+    parser.add_argument(
+        '--install-method',
+        help='method used to install the guest OS (debootstrap, tar)',
+        choices=['debootstrap'])
+
+    args = parser.parse_args()
+
+    if args.debug is not None:
+        DEBUG = True
+
+    config_file = parse_config(cfgfile=args.config)
+    for cfgparam, cfgvalue in config_file.items():
+        if cfgparam in CONFIG and cfgvalue != '':
+            CONFIG[cfgparam] = cfgvalue
+
+    vm = {'name': args.vmname}
+    for cfgparam, cfgvalue in CONFIG.items():
+        attr = getattr(args, cfgparam, None)
+        if attr is not None and attr != '':
+            vm[cfgparam] = attr
+        else:
+            vm[cfgparam] = cfgvalue
+
+    try:
+        debug('Creating %s directory' % (CONFIG['cachedir'],))
+        os.makedirs(CONFIG['cachedir'])
+    except Exception as e:
+        print('ERROR: %s' % (e))
+        sys.exit(1)
+
+    try:
+        create_vm(args=vm)
+    except Exception as e:
+        print('ERROR: %s' % (e))
+        if CONFIG['debug']:
+            print(traceback.format_exc())
+        sys.exit(1)
+    else:
+        print(VM_CONFIG)
+        sys.exit(0)
