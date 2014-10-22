@@ -326,6 +326,7 @@ def set_network_config(dirname, ip, ip6):
         debug('New IPv6 assigned: %s' % (ip6,))
 
     set_hosts(dirname=dirname, hostname=VM_CONFIG['name'], ip=ip, ip6=ip6)
+    set_hostname(dirname=dirname, hostname=VM_CONFIG['name'])
 
 
 def generate_ipv4(network):
@@ -390,6 +391,13 @@ def set_hosts(dirname, hostname, ip, ip6):
 
     with open(os.path.join(dirname, 'etc', 'hosts'), 'a') as f:
         f.write(hosts)
+
+
+def set_hostname(dirname, hostname):
+    debug('Setting the /etc/hostname file')
+
+    with open(os.path.join(dirname, 'etc', 'hostname'), 'w') as f:
+        f.write(hostname)
 
 
 def create_xen_config(vmconfig):
