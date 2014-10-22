@@ -474,7 +474,10 @@ if __name__ == "__main__":
     parser.add_argument(
         '--dist',
         help='distribution name or version for debian')
-    parser.add_argument('--arch', help='architecture (i386 or amd64)')
+    parser.add_argument(
+        '--arch',
+        help='architecture',
+        choices=['i386', 'amd64'])
     parser.add_argument(
         '--install-method',
         help='method used to install the guest OS (debootstrap, tar)',
