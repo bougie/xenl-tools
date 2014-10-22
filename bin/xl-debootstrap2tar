@@ -1,0 +1,128 @@
+#!/usr/bin/env python3
+
+import os
+import sys
+import subprocess
+import traceback
+import argparse
+
+DEBUG = False
+
+CONFIG = {
+    'dist': 'jessie',
+    'arch': 'amd64',
+    'mirror': 'http://ftp.debian.org/debian',
+    'cachedir': '/tmp/xen/cache'}
+
+
+def debug(text):
+    if DEBUG:
+        print('DEBUG: %s' % (text,))
+
+
+def run(cmd):
+    debug(cmd)
+
+    try:
+        ret = subprocess.check_call(cmd, shell=True)
+    except Exception as e:
+        raise RuntimeError('Failed to execute command: %s' % (e,))
+    else:
+        if ret != 0:
+            raise RuntimeError('Command \'%s\' returns \'%i\'' % (cmd, ret))
+
+
+def parse_config(cfgfile='/etc/xenl-tools/xen-tools.conf'):
+    config = {}
+    with open(cfgfile, 'r') as f:
+        for line in f:
+            line = [x.strip() for x in line.split('#')[0].split('=')]
+            if len(line) > 1:
+                config[line[0]] = line[1]
+    return config
+
+
+def debootstrap(dirname, arch, dist, mirror):
+    dstdir = os.path.join(dirname, 'debootstrap_tmp')
+
+    if arch is None:
+        arch = CONFIG['arch']
+    if dist is None:
+        dist = CONFIG['dist']
+    if mirror is None:
+        mirror = CONFIG['mirror']
+
+    if not os.path.exists(dstdir):
+        debug('Creating temporary mountpoint')
+        os.makedirs(dstdir)
+
+    debug('Debootstraping debian basic image')
+    run('debootstrap --arch=%s %s %s %s' % (arch, dist, dstdir, mirror))
+
+
+def create_archive(dirname, name):
+    srcdir = os.path.join(dirname, 'debootstrap_tmp')
+    dstdir = os.path.join(CONFIG['cachedir'], 'templates')
+    dst = os.path.join(dstdir, name + '.tar')
+
+    if not os.path.exists(dstdir):
+        debug('Creating templates directory')
+        os.makedirs(dstdir)
+
+    run('tar -cvf %s -C %s .' % (dst, srcdir))
+
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(
+        description='Create a template from debootstrap')
+
+    parser.add_argument('template_name', help='file template name')
+    parser.add_argument('-d', '--debug', action="store_true", help='debug mode')
+    parser.add_argument(
+        '-c', '--config',
+        help='xl config file (default is /etc/xenl-tools/xen-tools.conf)',
+        default='/etc/xenl-tools/xen-tools.conf')
+    parser.add_argument(
+        '--arch',
+        help='architecture',
+        choices=['i386', 'amd64'])
+    parser.add_argument(
+        '--dist',
+        help='distribution name or version for debian')
+    parser.add_argument('--mirror', help='repository to use for debootstraping')
+
+    args = parser.parse_args()
+
+    if args.debug is not None:
+        DEBUG = True
+
+    config_file = parse_config(cfgfile=args.config)
+    for cfgparam, cfgvalue in config_file.items():
+        if cfgparam in CONFIG and cfgvalue != '':
+            CONFIG[cfgparam] = cfgvalue
+
+    try:
+        debug('Creating %s directory' % (CONFIG['cachedir'],))
+        if not os.path.exists(CONFIG['cachedir']):
+            os.makedirs(CONFIG['cachedir'])
+    except Exception as e:
+        print('ERROR: %s' % (e))
+        sys.exit(1)
+
+    try:
+        debootstrap(
+            dirname=CONFIG['cachedir'],
+            arch=args.arch,
+            dist=args.dist,
+            mirror=args.mirror)
+
+        create_archive(
+            dirname=CONFIG['cachedir'],
+            name=args.template_name)
+    except Exception as e:
+        print('ERROR: %s' % (e))
+        if DEBUG:
+            print(traceback.format_exc())
+        sys.exit(1)
+    else:
+        sys.exit(0)
