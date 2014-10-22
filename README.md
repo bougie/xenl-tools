@@ -40,3 +40,10 @@ Here is a brief description of each included script
 
 This script is designed to create new images which may be used
 with the Xen hypervisor.
+
+### xl-debootstrap2tar
+
+This script is designed to create a tarball from a debootstrap which
+may be used by xt-create-image. After, the tarball can be manually
+personalized to include for exemple a new embded software.
+Also, using a tarball do the install process very faster
