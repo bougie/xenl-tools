@@ -30,6 +30,11 @@ CONFIG = {
     'gateway': '192.168.1.1',
     'netmask': '255.255.255.0',
     'nameserver': '192.168.1.1',
+    'ip6': 'auto',
+    'network6': '',
+    'gateway6': '',
+    'netmask6': '',
+    'nameserver6': '',
     'bridge': 'xenbr0',
     'kernel': '/boot/vmlinuz-`uname -r`',
     'initrd': '/boot/initrd.img-`uname -r`',
@@ -125,6 +130,7 @@ def create_vm(args):
         arch=args['arch'],
         fs=args['fs'],
         ip=args['ip'],
+        ip6=args['ip6'],
         backend=backend)
     create_xen_config(vmconfig=VM_CONFIG)
 
@@ -163,7 +169,8 @@ def create_swap_image(dirname, size):
         'device': CONFIG['disk_device']}
 
 
-def install_os(method, dirname, vmname, dist, arch, fs, ip, backend='file'):
+def install_os(method, dirname, vmname, dist, arch, fs, ip, ip6,
+               backend='file'):
     debug('Installing OS')
 
     mountpoint = os.path.join(dirname, 'install_tmp')
@@ -184,7 +191,7 @@ def install_os(method, dirname, vmname, dist, arch, fs, ip, backend='file'):
             arch, dist, mountpoint, CONFIG['mirror']))
     set_fstab_file(dirname=mountpoint, fs=fs)
     set_root_password(dirname=mountpoint)
-    set_network_config(dirname=mountpoint, ip=ip)
+    set_network_config(dirname=mountpoint, ip=ip, ip6=ip6)
 
     run('umount %s' % (mountpoint,))
     debug('Deleting temporary mountpoint')
@@ -242,7 +249,7 @@ def set_root_password(dirname):
     debug('New password generated: %s' % (password,))
 
 
-def set_network_config(dirname, ip):
+def set_network_config(dirname, ip, ip6):
     debug('Creating the network configuration')
 
     netconfig = {}
@@ -250,29 +257,73 @@ def set_network_config(dirname, ip):
     interfaces = "auto lo\n"
     interfaces += "iface lo inet loopback\n\n"
 
-    if ip == '' or ip == 'auto':
+    interfaces += "allow-hotplug eth0\n"
+
+    netconfig['device'] = 'eth0'
+    netconfig['mac'] = generate_mac()
+
+    if ip == '' or ip == 'auto' and CONFIG['network'] != '':
         ip = generate_ipv4(network=CONFIG['network'])
 
-    interfaces += "allow-hotplug eth0\n"
-    interfaces += "iface eth0 inet static\n"
+    if ip6 == '' or ip6 == 'auto' and CONFIG['network6'] != '':
+        ip6 = generate_ipv6(network=CONFIG['network6'], ifxmac=netconfig['mac'])
 
-    interfaces += "    address %s\n" % (ip,)
-    netconfig['device'] = 'eth0'
-    netconfig['address'] = ip
+    if ip == '':
+        netcfg_type = 'dhcp'
+    else:
+        netcfg_type = 'static'
+    interfaces += "iface eth0 inet %s\n" % (netcfg_type,)
+    netconfig['type'] = netcfg_type
 
-    for key in ['netmask', 'gateway', 'nameserver']:
-        if key in CONFIG and CONFIG[key] != '':
-            interfaces += "    %s %s\n" % (key, CONFIG['nameserver'])
-            netconfig[key] = CONFIG[key]
+    if ip != '':
+        interfaces += "    address %s\n" % (ip,)
+        netconfig['address'] = ip
 
-    netconfig['mac'] = generate_mac()
+        for key in ['netmask', 'gateway', 'nameserver']:
+            if key in CONFIG and CONFIG[key] != '':
+                interfaces += "    %s %s\n" % (key, CONFIG[key])
+                netconfig[key] = CONFIG[key]
+
+    if ip6 != '':
+        if CONFIG['netmask6'][0] == '/':
+            CONFIG['netmask6'] = CONFIG['netmask6'][1:]
+
+        interfaces += "    up ip -6 addr add %s/%s dev eth0\n" % (
+            ip6,
+            CONFIG['netmask6'])
+        interfaces += "    down ip -6 addr del %s/%s dev eth0\n" % (
+            ip6,
+            CONFIG['netmask6'])
+        netconfig['address6'] = ip6
+
+        for key in ['netmask6', 'gateway6', 'nameserver6']:
+            if key in CONFIG and CONFIG[key] != '':
+                netconfig[key] = CONFIG[key]
+
+        if 'gateway6' in netconfig:
+            interfaces += "    up ip -6 route add default via %s\n" % (
+                CONFIG[key],)
+            interfaces += "    down ip -6 route del default via %s\n" % (
+                CONFIG[key],)
+
+    if 'nameserver' in netconfig or 'nameserver6' in netconfig:
+        interfaces += '    dns-nameservers'
+        if 'nameserver' in netconfig:
+            interfaces += ' %s' % (netconfig['nameserver'],)
+        if 'nameserver6' in netconfig:
+            interfaces += ' %s' % (netconfig['nameserver6'],)
+        interfaces += '\n'
+
     netconfig['bridge'] = CONFIG['bridge']
 
     with open(os.path.join(dirname, 'etc', 'network', 'interfaces'), 'w') as f:
         f.write(interfaces)
 
     VM_CONFIG['net'].append(netconfig)
-    debug('New IP assigned: %s' % (ip,))
+    if ip != '':
+        debug('New IPv4 assigned: %s' % (ip,))
+    if ip6 != '':
+        debug('New IPv6 assigned: %s' % (ip6,))
 
 
 def generate_ipv4(network):
@@ -298,7 +349,26 @@ def generate_ipv4(network):
         set_previous_ip(str(new_ip))
         return str(new_ip)
     else:
-        raise ValueError('Unable to get new ip address')
+        raise ValueError(
+            'New IP %s is not in the network %s' % (str(new_ip), str(network)))
+
+
+def generate_ipv6(network, ifxmac):
+    ifxmac = ifxmac.split(':')
+    ifxmac = '%s:%s:%s' % (
+        ''.join(ifxmac[0:2]),
+        ''.join(ifxmac[2:4]),
+        ''.join(ifxmac[4:6]))
+
+    _network = ipaddress.IPv6Network(network).network_address
+    host = '%s%s%s' % (ifxmac[0:7], 'FF:FE', ifxmac[7:])
+
+    new_ip = ipaddress.IPv6Address('%s%s' % (_network, host))
+    if new_ip in ipaddress.IPv6Network(network):
+        return str(new_ip)
+    else:
+        raise ValueError(
+            'New IP %s is not in the network %s' % (str(new_ip), str(network)))
 
 
 def generate_mac():
@@ -335,10 +405,15 @@ def create_xen_config(vmconfig):
         vmconfig['swap']['path'],
         vmconfig['swap']['device'])
 
-    xenfile += "vif     = [\n    'ip=%s,mac=%s,bridge=%s'\n]\n" % (
-        vmconfig['net'][0]['address'],
-        vmconfig['net'][0]['mac'],
-        vmconfig['net'][0]['bridge'])
+    if vmconfig['net'][0]['type'] == 'static':
+        xenfile += "vif     = [\n    'ip=%s,mac=%s,bridge=%s'\n]\n" % (
+            vmconfig['net'][0]['address'],
+            vmconfig['net'][0]['mac'],
+            vmconfig['net'][0]['bridge'])
+    else:
+        xenfile += "vif     = [\n    'mac=%s,bridge=%s'\n]\n" % (
+            vmconfig['net'][0]['mac'],
+            vmconfig['net'][0]['bridge'])
 
     xenfile += "on_poweroff = 'destroy'\n"
     xenfile += "on_reboot   = 'restart'\n"
@@ -402,7 +477,8 @@ if __name__ == "__main__":
 
     try:
         debug('Creating %s directory' % (CONFIG['cachedir'],))
-        os.makedirs(CONFIG['cachedir'])
+        if not os.path.exists(CONFIG['cachedir']):
+            os.makedirs(CONFIG['cachedir'])
     except Exception as e:
         print('ERROR: %s' % (e))
         sys.exit(1)
@@ -411,7 +487,7 @@ if __name__ == "__main__":
         create_vm(args=vm)
     except Exception as e:
         print('ERROR: %s' % (e))
-        if CONFIG['debug']:
+        if DEBUG:
             print(traceback.format_exc())
         sys.exit(1)
     else:
