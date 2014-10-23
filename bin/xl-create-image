@@ -131,7 +131,8 @@ def create_vm(args):
         fs=args['fs'],
         ip=args['ip'],
         ip6=args['ip6'],
-        backend=backend)
+        backend=backend,
+        template=vm['copy'])
     create_xen_config(vmconfig=VM_CONFIG)
 
 
@@ -170,7 +171,7 @@ def create_swap_image(dirname, size):
 
 
 def install_os(method, dirname, vmname, dist, arch, fs, ip, ip6,
-               backend='file'):
+               backend='file', template=''):
     debug('Installing OS')
 
     mountpoint = os.path.join(dirname, 'install_tmp')
@@ -189,6 +190,19 @@ def install_os(method, dirname, vmname, dist, arch, fs, ip, ip6,
         debug('Debootstraping debian basic image')
         run('debootstrap --arch=%s %s %s %s' % (
             arch, dist, mountpoint, CONFIG['mirror']))
+    elif method == 'copy' and template != '':
+        tplfile = os.path.join(
+            CONFIG['cachedir'],
+            'templates',
+            template + '.tar')
+        if not os.path.exists(tplfile):
+            raise Exception('template %s does not exists' % (tplfile,))
+        run('tar -xvf %s -C %s' % (tplfile, mountpoint))
+    else:
+        raise ValueError(
+            'install method %s is not supported with template %s' % (
+                method,
+                template))
     set_fstab_file(dirname=mountpoint, fs=fs)
     set_root_password(dirname=mountpoint)
     set_network_config(dirname=mountpoint, ip=ip, ip6=ip6)
@@ -479,9 +493,8 @@ if __name__ == "__main__":
         help='architecture',
         choices=['i386', 'amd64'])
     parser.add_argument(
-        '--install-method',
-        help='method used to install the guest OS (debootstrap, tar)',
-        choices=['debootstrap'])
+        '--copy',
+        help='specify template name you want to copy from')
 
     args = parser.parse_args()
 
@@ -500,6 +513,12 @@ if __name__ == "__main__":
             vm[cfgparam] = attr
         else:
             vm[cfgparam] = cfgvalue
+
+    if args.copy is not None:
+        vm['install-method'] = 'copy'
+        vm['copy'] = args.copy
+    else:
+        vm['copy'] = ''
 
     try:
         debug('Creating %s directory' % (CONFIG['cachedir'],))
