@@ -78,7 +78,7 @@ def parse_config(cfgfile='/etc/xenl-tools/xen-tools.conf'):
         for line in f:
             line = [x.strip() for x in line.split('#')[0].split('=')]
             if len(line) > 1:
-                config[line[0]] = line[1]
+                config[line[0]] = '='.join(line[1:])
     return config
 
 
@@ -215,13 +215,13 @@ def install_os(method, dirname, vmname, dist, arch, fs, ip, ip6,
 def set_fstab_file(dirname, fs):
     debug('Creating fstab file')
 
-    fstab = "proc      /proc    proc    defaults                        0 0\n"
-    fstab += "devpts   /dev/pts devpts  rw,noexec,nosuid,gid=5,mode=620 0 0\n"
-    fstab += "/dev/%s1 / %s %s 0 1\n" % (
+    fstab = "/dev/%s1 / %s %s 0 1\n" % (
         CONFIG['disk_device'],
         fs,
-        CONFIG['%s_options' % (fs,)])
-    fstab += "/dev/%s2 none swap sw 0 0\n" % (CONFIG['disk_device'])
+        CONFIG[fs + '_options'])
+    fstab += "/dev/%s2 none swap sw 0 0\n" % (CONFIG['disk_device'],)
+    fstab += "proc      /proc    proc   defaults                        0 0\n"
+    fstab += "devpts   /dev/pts devpts  rw,noexec,nosuid,gid=5,mode=620 0 0\n"
 
     with open(os.path.join(dirname, 'etc', 'fstab'), 'w') as f:
         f.write(fstab)
