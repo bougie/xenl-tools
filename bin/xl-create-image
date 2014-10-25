@@ -110,7 +110,7 @@ def create_vm(args):
         raise Exception('VM name already exists')
 
     if 'dir' in CONFIG and CONFIG['dir'] != '':
-        backend = 'file'
+        args['backend'] = 'file'
 
         create_disk_image(
             dirname=vmdir,
@@ -122,17 +122,7 @@ def create_vm(args):
     else:
         raise ValueError('Unspecified xen image backend')
 
-    install_os(
-        method=args['install-method'],
-        dirname=vmdir,
-        vmname=args['name'],
-        dist=args['dist'],
-        arch=args['arch'],
-        fs=args['fs'],
-        ip=args['ip'],
-        ip6=args['ip6'],
-        backend=backend,
-        template=vm['copy'])
+    install_os(method=args['install-method'], dirname=vmdir, vmargs=args)
     create_xen_config(vmconfig=VM_CONFIG)
 
 
@@ -170,8 +160,7 @@ def create_swap_image(dirname, size):
         'device': CONFIG['disk_device']}
 
 
-def install_os(method, dirname, vmname, dist, arch, fs, ip, ip6,
-               backend='file', template=''):
+def install_os(method, dirname, vmargs):
     debug('Installing OS')
 
     mountpoint = os.path.join(dirname, 'install_tmp')
@@ -182,19 +171,19 @@ def install_os(method, dirname, vmname, dist, arch, fs, ip, ip6,
     except IOError:
         pass
 
-    if backend == 'file':
+    if vmargs['backend'] == 'file':
         img = os.path.join(dirname, 'disk.img')
         run('mount -o loop %s %s' % (img, mountpoint))
 
     if method == 'debootstrap':
         debug('Debootstraping debian basic image')
         run('debootstrap --arch=%s %s %s %s' % (
-            arch, dist, mountpoint, CONFIG['mirror']))
-    elif method == 'copy' and template != '':
+            vmargs['arch'], vmargs['dist'], mountpoint, CONFIG['mirror']))
+    elif method == 'copy' and vmargs['copy'] != '':
         tplfile = os.path.join(
             CONFIG['cachedir'],
             'templates',
-            template + '.tar')
+            vmargs['copy'] + '.tar')
         if not os.path.exists(tplfile):
             raise Exception('template %s does not exists' % (tplfile,))
         run('tar -xvf %s -C %s' % (tplfile, mountpoint))
@@ -202,10 +191,10 @@ def install_os(method, dirname, vmname, dist, arch, fs, ip, ip6,
         raise ValueError(
             'install method %s is not supported with template %s' % (
                 method,
-                template))
-    set_fstab_file(dirname=mountpoint, fs=fs)
+                vmargs['template']))
+    set_fstab_file(dirname=mountpoint, fs=vmargs['fs'])
     set_root_password(dirname=mountpoint)
-    set_network_config(dirname=mountpoint, ip=ip, ip6=ip6)
+    set_network_config(dirname=mountpoint, ip=vmargs['ip'], ip6=vmargs['ip6'])
 
     run('umount %s' % (mountpoint,))
     debug('Deleting temporary mountpoint')
@@ -495,6 +484,9 @@ if __name__ == "__main__":
     parser.add_argument(
         '--copy',
         help='specify template name you want to copy from')
+    parser.add_argument(
+        '--role',
+        help='scpecify a role name you want to execute after install')
 
     args = parser.parse_args()
 
@@ -519,6 +511,9 @@ if __name__ == "__main__":
         vm['copy'] = args.copy
     else:
         vm['copy'] = ''
+
+    if args.role is not None:
+        vm['role'] = args.role
 
     try:
         debug('Creating %s directory' % (CONFIG['cachedir'],))
