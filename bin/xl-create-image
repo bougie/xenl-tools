@@ -196,6 +196,12 @@ def install_os(method, dirname, vmargs):
     set_root_password(dirname=mountpoint)
     set_network_config(dirname=mountpoint, ip=vmargs['ip'], ip6=vmargs['ip6'])
 
+    if 'role' in vmargs:
+        apply_roles(
+            vmdir=mountpoint,
+            rolesdir=os.path.join('/etc/xenl-tools', 'role.d'),
+            names=vmargs['role'])
+
     run('umount %s' % (mountpoint,))
     debug('Deleting temporary mountpoint')
     os.rmdir(mountpoint)
@@ -454,6 +460,23 @@ def create_xen_config(vmconfig):
     debug('XEN Config file %s created' % (filename,))
 
 
+def apply_roles(vmdir, rolesdir, names):
+    debug('Applying roles %s' % (names,))
+
+    for name in names.split(','):
+        name = os.path.join(rolesdir, name)
+        if os.path.exists(name):
+            apply_role(vmdir=vmdir, role=name)
+        else:
+            raise ValueError('Role name %s does not exists' % (name,))
+
+
+def apply_role(vmdir, role):
+    debug('Applying role %s in VM %s' % (role, vmdir))
+
+    run('exec %s %s' % (role, vmdir))
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Create xen image file')
 
@@ -486,7 +509,7 @@ if __name__ == "__main__":
         help='specify template name you want to copy from')
     parser.add_argument(
         '--role',
-        help='scpecify a role name you want to execute after install')
+        help='specify role or roles name you want to execute after install')
 
     args = parser.parse_args()
 
