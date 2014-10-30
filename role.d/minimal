@@ -1,0 +1,9 @@
+#!/bin/sh
+#
+# SOME REQUIRED STUFF
+#
+
+ROOT_DIR=$1
+
+chroot ${ROOT_DIR} apt-get update
+chroot ${ROOT_DIR} apt-get upgrade -y
