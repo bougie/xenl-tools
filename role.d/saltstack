@@ -1,0 +1,9 @@
+#!/bin/sh
+#
+# INSTALL SALSTACK ON DEBIAN
+#
+
+ROOT_DIR=$1
+
+chroot ${ROOT_DIR} apt-get install -y salt-minion
+fuser -km ${ROOT_DIR}
