@@ -1,0 +1,89 @@
+#!/usr/bin/env python3
+import sys
+import argparse
+import subprocess
+
+
+class Action():
+    callbacks = {}
+
+    def __init__(self, name, args=None):
+        self.name = name
+        self.args = args
+
+    def __call__(self, func):
+        Action.callbacks[self.name] = (func, self.args)
+
+        return func
+
+
+def run(command):
+    """Execute the command `command`"""
+
+    out = ""
+    try:
+        out = str(subprocess.check_output(command,
+                                          shell=True,
+                                          universal_newlines=True))
+    except subprocess.CalledProcessError as e:
+        raise RuntimeError(
+            'Failed to execute command %s: %s' % (e.cmd, e.returncode))
+    else:
+        return out
+
+
+@Action('list')
+def action_list():
+    """List all started VMs"""
+
+    def parse_line(line):
+        return [_.strip() for _ in line.split() if len(_) > 0]
+
+    cmd = "/usr/sbin/xl list"
+    try:
+        _out = run(cmd).split('\n')
+    except Exception:
+        out = None
+    else:
+        out = []
+
+        # get headers from the first line
+        headers = parse_line(_out[0])
+
+        for line in _out[1:]:
+            if len(line.strip()) > 0:
+                # merge header's name with vm informations into a usable dict
+                out.append(dict(zip(headers, parse_line(line))))
+
+    return out
+
+
+def main():
+    parser = argparse.ArgumentParser(description='Admin script for VMs')
+
+    parser.add_argument('-d', '--debug', help='activate the debug mode')
+    parser.add_argument('-o', '--output', help='format of output',
+                        choices=['plain', 'json'], default='plain')
+
+    subparsers = parser.add_subparsers(dest='sub_commands')
+    for name, (func, args) in Action.callbacks.items():
+        _parser = subparsers.add_parser(name, help=func.__doc__)
+        if args is not None:
+            for argname in args:
+                _parser.add_argument(argname, default=None)
+
+    args = parser.parse_args()
+    if args.sub_commands in Action.callbacks.keys():
+        (func, func_args) = Action.callbacks[args.sub_commands]
+        if func_args is not None:
+            response = func(**{_: getattr(args, _, None) for _ in func_args})
+        else:
+            response = func()
+
+        print(response)
+        return 0
+
+    return 1
+
+if __name__ == "__main__":
+    sys.exit(main())
