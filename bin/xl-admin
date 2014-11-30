@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+import os
 import sys
 import argparse
 import subprocess
@@ -55,6 +56,43 @@ def action_list():
                 # merge header's name with vm informations into a usable dict
                 out.append(dict(zip(headers, parse_line(line))))
 
+    return out
+
+
+@Action('listall')
+def action_listall():
+    """List all avalaible VMs and there configuration"""
+
+    def parse_file(filename):
+        config = {}
+
+        # get all content
+        with open(filename, 'r') as f:
+            lines = f.read().split('\n')
+
+        # parse the content
+        for l_nb in range(len(lines)):
+            items = [_.strip() for _ in lines[l_nb].split('#')[0].split('=')]
+            if len(items) > 1:
+                v = '='.join(items[1:]).strip()
+                # handle [...] for param value
+                if '[' in v and ']' not in v:
+                    l_nb += 1
+                    # get the next line until the array in not closed by ']'
+                    while ']' not in v:
+                        v += lines[l_nb].split('#')[0].strip()
+                        l_nb += 1
+                # remove '' around param value
+                if v[0] == "'" and v[-1:] == "'":
+                    v = v[1:len(v)]
+                config[items[0]] = v
+        return config
+
+    out = []
+    for root, dirs, files in os.walk('/etc/xen'):
+        for cfgfile in files:
+            if cfgfile.endswith('.cfg') and not cfgfile.startswith('.'):
+                out.append(parse_file(os.path.join(root, cfgfile)))
     return out
 
 
