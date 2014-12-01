@@ -96,6 +96,37 @@ def action_listall():
     return out
 
 
+def set_vm_state(state, vmname):
+    """Set the state of a VM (start, stop or reboot)
+
+    :param state: start, stop or reboot state
+    :type state: str
+    :param vmname: name of the VM
+    :type vmname: str"""
+
+    actions = {
+        'start': 'create'}
+
+    cmd = '/usr/sbin/xl %s %s' % (actions[state],
+                                  os.path.join('/etc/xen',
+                                               '%s.cfg' % (vmname,)),)
+
+    out = ''
+    try:
+        out = run(cmd)
+    except RuntimeError:
+        out = None
+
+    return out
+
+
+@Action('start', args=['vmname'])
+def action_start(vmname):
+    """start a VM"""
+
+    return set_vm_state('start', vmname)
+
+
 def main():
     parser = argparse.ArgumentParser(description='Admin script for VMs')
 
