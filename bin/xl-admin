@@ -107,7 +107,8 @@ def set_vm_state(state, vmname):
     actions = {
         'start': 'create',
         'stop': 'shutdown',
-        'kill': 'destroy'}
+        'kill': 'destroy',
+        'restart': 'reboot'}
 
     if state == 'start':
         vmname = os.path.join('/etc/xen', '%s.cfg' % (vmname,))
@@ -141,6 +142,13 @@ def action_kill(vmname):
     """kill a VM"""
 
     return set_vm_state('kill', vmname)
+
+
+@Action('restart', args=['vmname'])
+def action_restart(vmname):
+    """restart a VM"""
+
+    return set_vm_state('restart', vmname)
 
 
 def main():
