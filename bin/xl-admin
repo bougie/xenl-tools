@@ -19,7 +19,7 @@ class Action():
 
 
 def run(command):
-    """Execute the command `command`"""
+    """execute the command `command`"""
 
     out = ""
     try:
@@ -35,7 +35,7 @@ def run(command):
 
 @Action('list')
 def action_list():
-    """List all started VMs"""
+    """list all started VMs"""
 
     def parse_line(line):
         return [_.strip() for _ in line.split() if len(_) > 0]
@@ -61,7 +61,7 @@ def action_list():
 
 @Action('listall')
 def action_listall():
-    """List all avalaible VMs and there configuration"""
+    """list all avalaible VMs and there configuration"""
 
     def parse_file(filename):
         config = {}
@@ -97,7 +97,7 @@ def action_listall():
 
 
 def set_vm_state(state, vmname):
-    """Set the state of a VM (start, stop or reboot)
+    """set the state of a VM (start, stop or reboot)
 
     :param state: start, stop or reboot state
     :type state: str
@@ -105,11 +105,13 @@ def set_vm_state(state, vmname):
     :type vmname: str"""
 
     actions = {
-        'start': 'create'}
+        'start': 'create',
+        'stop': 'shutdown',
+        'kill': 'destroy'}
 
-    cmd = '/usr/sbin/xl %s %s' % (actions[state],
-                                  os.path.join('/etc/xen',
-                                               '%s.cfg' % (vmname,)),)
+    if state == 'start':
+        vmname = os.path.join('/etc/xen', '%s.cfg' % (vmname,))
+    cmd = '/usr/sbin/xl %s %s' % (actions[state], vmname)
 
     out = ''
     try:
@@ -125,6 +127,20 @@ def action_start(vmname):
     """start a VM"""
 
     return set_vm_state('start', vmname)
+
+
+@Action('stop', args=['vmname'])
+def action_stop(vmname):
+    """stop a VM"""
+
+    return set_vm_state('stop', vmname)
+
+
+@Action('kill', args=['vmname'])
+def action_kill(vmname):
+    """kill a VM"""
+
+    return set_vm_state('kill', vmname)
 
 
 def main():
