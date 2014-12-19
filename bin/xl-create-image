@@ -386,7 +386,7 @@ def generate_ipv6(network, ifxmac):
 def generate_mac():
     def maccouple():
         return ''.join(random.choice(string.hexdigits) for _ in range(2))
-    return ':'.join(maccouple() for _ in range(6))
+    return '00:1d:%s' % (':'.join(maccouple().lower() for _ in range(4)),)
 
 
 def set_hosts(dirname, hostname, ip, ip6):
