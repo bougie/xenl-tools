@@ -1,0 +1,14 @@
+#!/bin/sh
+#
+#  This script cleans the newly created image's apt-get archive.
+#
+# Steve
+# --
+# http://www.steve.org.uk/
+
+prefix=$1
+
+#
+#  Clean the APT package cache for Debian GNU/Linux.
+#
+chroot ${prefix} /usr/bin/apt-get clean

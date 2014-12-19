@@ -1,0 +1,39 @@
+#!/bin/sh
+#
+#  This script installs OpenSSH Server on the newly created guest.
+#
+#  It does this by generating the keys within the host, since guests
+# do not have the necessary /dev/random and /dev/urandom to generate
+# their own keys before boot.
+#
+# Dmitry Nedospasov
+# --
+# http://nedos.net/
+
+prefix=$1
+
+#
+#  Since our guests doesn't have an RNG, generate the keys from the host
+#
+#  First, create an ssh directory
+#
+mkdir -p ${prefix}/etc/ssh
+
+#
+#  Second, Generate the Host RSA Key
+#
+if [ ! -f ${prefix}/etc/ssh/ssh_host_rsa_key ]; then
+    ssh-keygen -t rsa -N "" -f ${prefix}/etc/ssh/ssh_host_rsa_key -C "root@${hostname}"
+fi
+
+#
+#  Third, Generate the Host DSA Key
+#
+if [ ! -f ${prefix}/etc/ssh/ssh_host_dsa_key ]; then
+    ssh-keygen -t dsa -N "" -f ${prefix}/etc/ssh/ssh_host_dsa_key -C "root@${hostname}"
+fi
+
+#
+#  Install ssh
+#
+chroot ${prefix} apt-get install -y openssh-server

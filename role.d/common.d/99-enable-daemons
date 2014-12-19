@@ -1,0 +1,16 @@
+#!/bin/sh
+#
+#  This script removes the file which prevents daemons from running.
+#
+# Steve
+# --
+# http://www.steve.org.uk/
+
+prefix=$1
+
+#
+#  Remove the script if present.
+#
+if [ -x "${prefix}/usr/sbin/policy-rc.d" ]; then
+    rm -f "${prefix}/usr/sbin/policy-rc.d"
+fi

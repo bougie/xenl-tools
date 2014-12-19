@@ -1,8 +1,0 @@
-#!/bin/sh
-#
-# REMOVE SYSTEMD
-#
-
-ROOT_DIR=$1
-
-chroot ${ROOT_DIR} apt-get remove -y --purge systemd
