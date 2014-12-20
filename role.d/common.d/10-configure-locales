@@ -20,4 +20,4 @@ fi
 #
 chroot ${prefix} /usr/bin/apt-get install -y locales
 chroot ${prefix} /usr/bin/apt-get install -y  util-linux-locales
-chroot ${prefix} /usr/sbin/update-locale LANG=C
+chroot ${prefix} /usr/sbin/update-locale LANG=C LC_ALL=C
