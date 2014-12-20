@@ -37,3 +37,8 @@ fi
 #  Install ssh
 #
 chroot ${prefix} apt-get install -y openssh-server
+
+#
+#  Enable root login via SSH
+#
+chroot ${prefix} sed -i 's/PermitRootLogin \(.*\)/PermitRootLogin yes/' /etc/ssh/sshd_config
