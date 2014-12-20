@@ -5,7 +5,11 @@
 
 CWD=`dirname $0`
 ROOT_DIR=$1
-DIST="common"
+if [ $? -eq 2 ]; then
+	DIST=$2
+else
+	DIST="common"
+fi
 
 if [ ! -d ${ROOT_DIR} ]; then
 	exit 1
