@@ -1,0 +1,182 @@
+#!/usr/bin/env python3
+import os
+import sys
+import argparse
+import subprocess
+
+
+class Action():
+    callbacks = {}
+
+    def __init__(self, name, args=None):
+        self.name = name
+        self.args = args
+
+    def __call__(self, func):
+        Action.callbacks[self.name] = (func, self.args)
+
+        return func
+
+
+def run(command):
+    """execute the command `command`"""
+
+    out = ""
+    try:
+        out = str(subprocess.check_output(command,
+                                          shell=True,
+                                          universal_newlines=True))
+    except subprocess.CalledProcessError as e:
+        raise RuntimeError(
+            'Failed to execute command %s: %s' % (e.cmd, e.returncode))
+    else:
+        return out
+
+
+@Action('list')
+def action_list():
+    """list all started VMs"""
+
+    def parse_line(line):
+        return [_.strip() for _ in line.split() if len(_) > 0]
+
+    cmd = "/usr/sbin/xl list"
+    try:
+        _out = run(cmd).split('\n')
+    except Exception:
+        out = None
+    else:
+        out = []
+
+        # get headers from the first line
+        headers = parse_line(_out[0])
+
+        for line in _out[1:]:
+            if len(line.strip()) > 0:
+                # merge header's name with vm informations into a usable dict
+                out.append(dict(zip(headers, parse_line(line))))
+
+    return out
+
+
+@Action('listall')
+def action_listall():
+    """list all avalaible VMs and there configuration"""
+
+    def parse_file(filename):
+        config = {}
+
+        # get all content
+        with open(filename, 'r') as f:
+            lines = f.read().split('\n')
+
+        # parse the content
+        for l_nb in range(len(lines)):
+            items = [_.strip() for _ in lines[l_nb].split('#')[0].split('=')]
+            if len(items) > 1:
+                v = '='.join(items[1:]).strip()
+                # handle [...] for param value
+                if '[' in v and ']' not in v:
+                    l_nb += 1
+                    # get the next line until the array in not closed by ']'
+                    while ']' not in v:
+                        v += lines[l_nb].split('#')[0].strip()
+                        l_nb += 1
+                # remove '' around param value
+                if v[0] == "'" and v[-1:] == "'":
+                    v = v[1:len(v)]
+                config[items[0]] = v
+        return config
+
+    out = []
+    for root, dirs, files in os.walk('/etc/xen'):
+        for cfgfile in files:
+            if cfgfile.endswith('.cfg') and not cfgfile.startswith('.'):
+                out.append(parse_file(os.path.join(root, cfgfile)))
+    return out
+
+
+def set_vm_state(state, vmname):
+    """set the state of a VM (start, stop or reboot)
+
+    :param state: start, stop or reboot state
+    :type state: str
+    :param vmname: name of the VM
+    :type vmname: str"""
+
+    actions = {
+        'start': 'create',
+        'stop': 'shutdown',
+        'kill': 'destroy',
+        'restart': 'reboot'}
+
+    if state == 'start':
+        vmname = os.path.join('/etc/xen', '%s.cfg' % (vmname,))
+    cmd = '/usr/sbin/xl %s %s' % (actions[state], vmname)
+
+    out = ''
+    try:
+        out = run(cmd)
+    except RuntimeError:
+        out = None
+
+    return out
+
+
+@Action('start', args=['vmname'])
+def action_start(vmname):
+    """start a VM"""
+
+    return set_vm_state('start', vmname)
+
+
+@Action('stop', args=['vmname'])
+def action_stop(vmname):
+    """stop a VM"""
+
+    return set_vm_state('stop', vmname)
+
+
+@Action('kill', args=['vmname'])
+def action_kill(vmname):
+    """kill a VM"""
+
+    return set_vm_state('kill', vmname)
+
+
+@Action('restart', args=['vmname'])
+def action_restart(vmname):
+    """restart a VM"""
+
+    return set_vm_state('restart', vmname)
+
+
+def main():
+    parser = argparse.ArgumentParser(description='Admin script for VMs')
+
+    parser.add_argument('-d', '--debug', help='activate the debug mode')
+    parser.add_argument('-o', '--output', help='format of output',
+                        choices=['plain', 'json'], default='plain')
+
+    subparsers = parser.add_subparsers(dest='sub_commands')
+    for name, (func, args) in Action.callbacks.items():
+        _parser = subparsers.add_parser(name, help=func.__doc__)
+        if args is not None:
+            for argname in args:
+                _parser.add_argument(argname, default=None)
+
+    args = parser.parse_args()
+    if args.sub_commands in Action.callbacks.keys():
+        (func, func_args) = Action.callbacks[args.sub_commands]
+        if func_args is not None:
+            response = func(**{_: getattr(args, _, None) for _ in func_args})
+        else:
+            response = func()
+
+        print(response)
+        return 0
+
+    return 1
+
+if __name__ == "__main__":
+    sys.exit(main())
