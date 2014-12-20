@@ -200,7 +200,8 @@ def install_os(method, dirname, vmargs):
         apply_roles(
             vmdir=mountpoint,
             rolesdir=os.path.join('/etc/xenl-tools', 'role.d'),
-            names=vmargs['role'])
+            names=vmargs['role'],
+            dist=vmargs['dist'])
 
     run('umount %s' % (mountpoint,))
     debug('Deleting temporary mountpoint')
@@ -460,21 +461,21 @@ def create_xen_config(vmconfig):
     debug('XEN Config file %s created' % (filename,))
 
 
-def apply_roles(vmdir, rolesdir, names):
+def apply_roles(vmdir, rolesdir, names, dist):
     debug('Applying roles %s' % (names,))
 
     for name in names.split(','):
         name = os.path.join(rolesdir, name)
         if os.path.exists(name):
-            apply_role(vmdir=vmdir, role=name)
+            apply_role(vmdir=vmdir, role=name, dist=dist)
         else:
             raise ValueError('Role name %s does not exists' % (name,))
 
 
-def apply_role(vmdir, role):
+def apply_role(vmdir, role, dist):
     debug('Applying role %s in VM %s' % (role, vmdir))
 
-    run('exec %s %s' % (role, vmdir))
+    run('exec %s %s %s' % (role, vmdir, dist))
 
 
 if __name__ == "__main__":
