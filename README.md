@@ -12,6 +12,7 @@ xenl-tools currently has scripts to install releases of debian.
 
 ### Debian
 
+* Wheezy 7
 * Jessie 8
 
 
@@ -27,8 +28,9 @@ To use these tools you'll need the following software:
 Installation
 ------------
 
-As root or with sudo, clone the repository and copy xen-tools.conf.sample to
+As root or with sudo, clone the repository and copy **xen-tools.conf.sample** to
 **/etc/xenl-tools/xen-tools.conf**.
+If you want roles support, you need to copy **roles.d** directory into **/etc/xenl-tools**. Then you have to symlinks all scripts listed in **/etc/xenl-tools/roles.d/common.d/*** to **/etc/xenl-tools/roles.d/wheezy.d** and **/etc/xenl-tools/roles.d/jessie.d** directtory.
 
 
 The Scripts
