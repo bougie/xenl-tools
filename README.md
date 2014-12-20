@@ -30,7 +30,12 @@ Installation
 
 As root or with sudo, clone the repository and copy **xen-tools.conf.sample** to
 **/etc/xenl-tools/xen-tools.conf**.
-If you want roles support, you need to copy **roles.d** directory into **/etc/xenl-tools**. Then you have to symlinks all scripts listed in **/etc/xenl-tools/roles.d/common.d/*** to **/etc/xenl-tools/roles.d/wheezy.d** and **/etc/xenl-tools/roles.d/jessie.d** directtory.
+If you want roles support, you need to copy **roles.d** directory into **/etc/xenl-tools**.  
+
+Then you have to symlinks all scripts listed in **/etc/xenl-tools/roles.d/common.d/*** to **/etc/xenl-tools/roles.d/wheezy.d** and **/etc/xenl-tools/roles.d/jessie.d** directtory.  
+For example for jessie:
+
+    # for f in `find /etc/xenl-tools/role.d/common.d/`; do ln -s $f /etc/xenl-tools/role.d/jessie.d/; done
 
 
 The Scripts
