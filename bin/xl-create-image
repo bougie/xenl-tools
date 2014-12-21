@@ -30,6 +30,7 @@ CONFIG = {
     'gateway': '192.168.1.1',
     'netmask': '255.255.255.0',
     'nameserver': '192.168.1.1',
+    'search': '',
     'ip6': 'auto',
     'network6': '',
     'gateway6': '',
@@ -194,7 +195,8 @@ def install_os(method, dirname, vmargs):
                 vmargs['template']))
     set_fstab_file(dirname=mountpoint, fs=vmargs['fs'])
     set_root_password(dirname=mountpoint)
-    set_network_config(dirname=mountpoint, ip=vmargs['ip'], ip6=vmargs['ip6'])
+    set_network_config(dirname=mountpoint, ip=vmargs['ip'], ip6=vmargs['ip6'],
+                       domain=vmargs['search'])
 
     if 'role' in vmargs:
         apply_roles(
@@ -259,7 +261,7 @@ def set_root_password(dirname):
     debug('New password generated: %s' % (password,))
 
 
-def set_network_config(dirname, ip, ip6):
+def set_network_config(dirname, ip, ip6, domain):
     debug('Creating the network configuration')
 
     netconfig = {}
@@ -335,7 +337,8 @@ def set_network_config(dirname, ip, ip6):
     if ip6 != '':
         debug('New IPv6 assigned: %s' % (ip6,))
 
-    set_hosts(dirname=dirname, hostname=VM_CONFIG['name'], ip=ip, ip6=ip6)
+    set_hosts(dirname=dirname, hostname=VM_CONFIG['name'], ip=ip, ip6=ip6,
+              domain=domain)
     set_hostname(dirname=dirname, hostname=VM_CONFIG['name'])
 
 
@@ -390,16 +393,24 @@ def generate_mac():
     return '00:1d:%s' % (':'.join(maccouple().lower() for _ in range(4)),)
 
 
-def set_hosts(dirname, hostname, ip, ip6):
+def set_hosts(dirname, hostname, ip, ip6, domain=None):
     debug('Setting entries in the /etc/hosts file')
 
-    hosts = ''
-    if ip != '':
-        hosts += '%s %s\n' % (ip, hostname)
-    if ip6 != '':
-        hosts += '%s %s\n' % (ip6, hostname)
+    hosts = '127.0.0.1 localhost\n'
+    if domain is not None and domain != '':
+        hosts += '127.0.1.1 %s.%s %s\n' % (hostname, domain, hostname)
+    else:
+        hosts += '127.0.1.1 %s\n' % (hostname,)
 
-    with open(os.path.join(dirname, 'etc', 'hosts'), 'a') as f:
+    if domain is not None and domain != '':
+        hosts += '::1 localhost %s.%s %s ip6-localhost ip6-loopback\n' % (
+            hostname, domain, hostname)
+    else:
+        hosts += '::1 localhost %s ip6-localhost ip6-loopback\n' % (hostname,)
+    hosts += 'ff02::1 ip6-allnodes'
+    hosts += 'ff02::2 ip6-allrouters'
+
+    with open(os.path.join(dirname, 'etc', 'hosts'), 'w') as f:
         f.write(hosts)
 
 
