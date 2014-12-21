@@ -65,12 +65,21 @@ def run(cmd):
     debug(cmd)
 
     try:
-        ret = subprocess.check_call(cmd, shell=True)
+        outstream = open('/var/log/xl-create-image.out', 'a+')
+        errstream = open('/var/log/xl-create-image.err', 'a+')
+
+        ret = subprocess.check_call(cmd,
+                                    stdout=outstream,
+                                    stderr=errstream,
+                                    shell=True)
     except Exception as e:
         raise RuntimeError('Failed to execute command: %s' % (e,))
     else:
         if ret != 0:
             raise RuntimeError('Command \'%s\' returns \'%i\'' % (cmd, ret))
+    finally:
+        outstream.close()
+        errstream.close()
 
 
 def parse_config(cfgfile='/etc/xenl-tools/xen-tools.conf'):
