@@ -3,7 +3,37 @@
 # INSTALL SALSTACK ON DEBIAN
 #
 
+CWD=`dirname $0`
 ROOT_DIR=$1
+MINION_FILE="/srv/salt/files/saltstack/minion"
 
+if [ ! -d ${ROOT_DIR} ]; then
+	exit 1
+fi
+
+${CWD}/common.d/01-disable-daemons ${ROOT_DIR}
+
+#
+# Install saltstack minion
+#
 chroot ${ROOT_DIR} apt-get install -y salt-minion
 fuser -km ${ROOT_DIR}
+
+#
+# Copy salt minion config file if a template exists
+#
+if [ -f ${MINION_FILE} ]; then
+	cp ${MINION_FILE} ${ROOT_DIR}/etc/salt/
+fi
+
+#
+# Remove old minion keys and force regenerating them
+#
+for ext in pub pem; do
+	if [ -e ${ROOT_DIR}/etc/salt/pki/minion/minion.${ext} ]; then
+		chroot ${ROOT_DIR} rm /etc/salt/pki/minion/minion.${ext}
+	fi
+done
+chroot ${ROOT_DIR} echo "" > /etc/salt/minion_id
+
+${CWD}/common.d/99-enable-daemons ${ROOT_DIR}
