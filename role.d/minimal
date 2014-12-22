@@ -15,10 +15,13 @@ if [ ! -d ${ROOT_DIR} ]; then
 	exit 1
 fi
 
+echo "chroot ${ROOT_DIR} apt-get update"
 chroot ${ROOT_DIR} apt-get update
 
+echo "Launching ${DIST} role.d scripts"
 if [ -n "${DIST}" ] && [ -d ${CWD}/${DIST}.d ]; then
-	for script in `find ${CWD}/${DIST}.d -type f | sort`; do
+	for script in `find ${CWD}/${DIST}.d \( -type f -o -type l \) | sort`; do
+		echo "${script} ${ROOT_DIR}"
 		${script} ${ROOT_DIR}
 	done
 fi
